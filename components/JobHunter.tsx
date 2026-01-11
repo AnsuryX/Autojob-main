@@ -137,15 +137,33 @@ const JobHunter: React.FC<JobHunterProps> = ({ profile, activeStrategy, onApply,
     setIsDiscovering(true);
     setDiscoveredJobs([]);
     addLog("🔍 Searching REAL job listings from actual job boards...");
+    addLog(`🔎 Search params: ${JSON.stringify(profile.preferences)}`);
     try {
+      console.log('Starting job search...', profile.preferences);
       const results = await searchRealJobs(profile.preferences);
+      console.log('Job search results:', results);
       setDiscoveredJobs(results);
-      addLog(`✅ SUCCESS: Found ${results.length} REAL job opportunities from actual platforms.`);
-      if (results.length === 0) {
-        addLog("⚠️ No jobs found. Try adjusting your search criteria or add API keys for more sources.");
+      if (results.length > 0) {
+        addLog(`✅ SUCCESS: Found ${results.length} REAL job opportunities from actual platforms.`);
+      } else {
+        addLog("⚠️ No jobs found. Trying fallback methods...");
+        // Try a simple search as fallback
+        const fallbackResults = await searchRealJobs({
+          targetRoles: ['software engineer'],
+          locations: ['Remote'],
+          remoteOnly: true
+        });
+        if (fallbackResults.length > 0) {
+          setDiscoveredJobs(fallbackResults);
+          addLog(`✅ Found ${fallbackResults.length} jobs with fallback search.`);
+        } else {
+          addLog("❌ No jobs found. Check API keys or try again later.");
+        }
       }
     } catch (e) {
+      console.error('Job search error:', e);
       addLog(`❌ Discovery Error: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      addLog(`📋 Error details: ${JSON.stringify(e)}`);
     } finally {
       setIsDiscovering(false);
     }
@@ -501,9 +519,14 @@ const JobHunter: React.FC<JobHunterProps> = ({ profile, activeStrategy, onApply,
           <p className="text-slate-500 text-sm">Autonomous Applied Intelligence V3.0</p>
         </div>
         <button 
-          onClick={discoverJobs} 
+          onClick={(e) => {
+            e.preventDefault();
+            console.log('Button clicked! Starting job search...');
+            addLog('🖱️ BUTTON CLICKED: Initiating job search...');
+            discoverJobs();
+          }} 
           disabled={isDiscovering || risk.isLocked || isBulkActive} 
-          className={`px-6 py-3 rounded-2xl transition-all font-bold shadow-xl disabled:opacity-50 flex items-center gap-3 ${
+          className={`px-6 py-3 rounded-2xl transition-all font-bold shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3 ${
             isDiscovering ? 'bg-indigo-500 text-white animate-pulse' : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-indigo-200'
           }`}
         >
