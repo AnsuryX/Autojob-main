@@ -1,8 +1,9 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { extractJobData, calculateMatchScore, generateCoverLetter, mutateResume, createStrategyPlan, generateStrategyBrief, augmentResumeWithSkill, generateInterviewQuestions } from '../services/gemini.ts';
-import { searchRealJobs } from '../services/jobSearch.ts';
+import { searchRealJobs, extractJobDetailsFromUrl } from '../services/jobSearchServer.ts';
 import { applyToJob, formatResumeForApplication, createApplicationPackage } from '../services/jobApplication.ts';
+import { automateApplication } from '../services/jobApplicationAutomation.ts';
 import { Job, UserProfile, MatchResult, ApplicationStatus, ApplicationLog, DiscoveredJob, CoverLetterStyle, RiskStatus, JobIntent, CommandResult, StrategyPlan } from '../types.ts';
 import CommandTerminal from './CommandTerminal.tsx';
 import { Icons } from '../constants.tsx';
@@ -360,7 +361,30 @@ const JobHunter: React.FC<JobHunterProps> = ({ profile, activeStrategy, onApply,
       
       if (!(await performRiskCheck("Navigation"))) throw new Error("Risk Threshold Exceeded");
       
-      // ACTUALLY APPLY TO THE JOB
+      // Try automated form filling with Puppeteer (if backend server available)
+      addLog("🤖 Attempting automated form filling with Puppeteer...");
+      
+      try {
+        const automationResult = await automateApplication(
+          currentJob.applyUrl,
+          profile,
+          selectedStyle,
+          currentJob.title,
+          currentJob.company
+        );
+        
+        if (automationResult.success) {
+          addLog(`✅ AUTOMATED FORM FILLING: ${automationResult.message}`);
+          addLog(`📝 Fields filled: ${automationResult.filledFields.join(', ')}`);
+        } else {
+          addLog(`⚠️ Automation limited: ${automationResult.message}`);
+        }
+      } catch (autoError) {
+        console.error('Automation error:', autoError);
+        addLog("⚠️ Automated filling unavailable, using manual mode...");
+      }
+      
+      // Always prepare materials for manual use
       const applicationResult = await applyToJob(currentJob, profile, selectedStyle);
       
       if (applicationResult.success) {
@@ -402,7 +426,7 @@ const JobHunter: React.FC<JobHunterProps> = ({ profile, activeStrategy, onApply,
         onApply(logEntry);
         
         setAutomationStep(ApplicationStatus.COMPLETED);
-        addLog("✅ APPLICATION CYCLE COMPLETE! Fill out the form in the opened window using the downloaded materials.");
+        addLog("✅ APPLICATION CYCLE COMPLETE! Review the opened form and submit when ready.");
         setJobInput('');
       } else {
         throw new Error("Application preparation failed");
