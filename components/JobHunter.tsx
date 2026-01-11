@@ -1,6 +1,8 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { extractJobData, calculateMatchScore, generateCoverLetter, searchJobs, mutateResume, createStrategyPlan, generateStrategyBrief, augmentResumeWithSkill, generateInterviewQuestions } from '../services/gemini.ts';
+import { extractJobData, calculateMatchScore, generateCoverLetter, mutateResume, createStrategyPlan, generateStrategyBrief, augmentResumeWithSkill, generateInterviewQuestions } from '../services/gemini.ts';
+import { searchRealJobs } from '../services/jobSearch.ts';
+import { applyToJob, formatResumeForApplication, createApplicationPackage } from '../services/jobApplication.ts';
 import { Job, UserProfile, MatchResult, ApplicationStatus, ApplicationLog, DiscoveredJob, CoverLetterStyle, RiskStatus, JobIntent, CommandResult, StrategyPlan } from '../types.ts';
 import CommandTerminal from './CommandTerminal.tsx';
 import { Icons } from '../constants.tsx';
@@ -93,7 +95,7 @@ const JobHunter: React.FC<JobHunterProps> = ({ profile, activeStrategy, onApply,
     if (cmd.action === 'pause') { setRisk(prev => ({ ...prev, isLocked: true })); addLog(`⏸️ SYSTEM PAUSED`); return; }
     if (cmd.action === 'resume') { setRisk(prev => ({ ...prev, isLocked: false })); addLog("▶️ SYSTEM RESUMED"); return; }
 
-    if (cmd.action === 'apply' || cmd.action === 'filter') {
+      if (cmd.action === 'apply' || cmd.action === 'filter') {
       const effectivePrefs = {
         ...profile.preferences,
         targetRoles: cmd.filters?.role ? [cmd.filters.role] : profile.preferences.targetRoles,
@@ -101,11 +103,11 @@ const JobHunter: React.FC<JobHunterProps> = ({ profile, activeStrategy, onApply,
       };
       setIsDiscovering(true);
       try {
-        const results = await searchJobs(effectivePrefs);
+        const results = await searchRealJobs(effectivePrefs);
         setDiscoveredJobs(results);
-        addLog(`✅ FOUND ${results.length} MATCHING LISTINGS`);
+        addLog(`✅ FOUND ${results.length} REAL JOB LISTINGS`);
       } catch (err) {
-        addLog(`❌ DISCOVERY ERROR`);
+        addLog(`❌ DISCOVERY ERROR: ${err instanceof Error ? err.message : 'Unknown error'}`);
       } finally {
         setIsDiscovering(false);
       }
@@ -134,13 +136,16 @@ const JobHunter: React.FC<JobHunterProps> = ({ profile, activeStrategy, onApply,
     if (risk.isLocked) { addLog("🚨 OPERATION BLOCKED: High risk of detection."); return; }
     setIsDiscovering(true);
     setDiscoveredJobs([]);
-    addLog("Initiating wide-net web crawl for listings...");
+    addLog("🔍 Searching REAL job listings from actual job boards...");
     try {
-      const results = await searchJobs(profile.preferences);
+      const results = await searchRealJobs(profile.preferences);
       setDiscoveredJobs(results);
-      addLog(`✅ SUCCESS: Staged ${results.length} opportunities in mission queue.`);
+      addLog(`✅ SUCCESS: Found ${results.length} REAL job opportunities from actual platforms.`);
+      if (results.length === 0) {
+        addLog("⚠️ No jobs found. Try adjusting your search criteria or add API keys for more sources.");
+      }
     } catch (e) {
-      addLog(`Discovery Error`);
+      addLog(`❌ Discovery Error: ${e instanceof Error ? e.message : 'Unknown error'}`);
     } finally {
       setIsDiscovering(false);
     }
@@ -266,30 +271,38 @@ const JobHunter: React.FC<JobHunterProps> = ({ profile, activeStrategy, onApply,
           const mutation = await mutateResume(jobData, profile);
           
           setAutomationStep(ApplicationStatus.GENERATING_CL);
-          addLog(`Synthesizing CV in ${selectedStyle} style...`);
-          const cl = await generateCoverLetter(jobData, profile, selectedStyle);
-
+          addLog(`📝 Generating cover letter in ${selectedStyle} style...`);
+          
           setAutomationStep(ApplicationStatus.APPLYING);
-          addLog("Simulating human application dispatch...");
-          await humanDelay(2000, 4000); // Simulate human delay
-
-          const logEntry: ApplicationLog = {
-            id: Math.random().toString(36).substr(2, 9),
-            jobId: jobData.id,
-            jobTitle: jobData.title,
-            company: jobData.company,
-            status: ApplicationStatus.COMPLETED,
-            timestamp: new Date().toISOString(),
-            url: jobData.applyUrl,
-            platform: jobData.platform,
-            location: jobData.location,
-            coverLetter: cl,
-            coverLetterStyle: selectedStyle,
-            mutatedResume: mutation.mutatedResume,
-            mutationReport: mutation.report
-          };
-          onApply(logEntry);
-          addLog(`✅ SUCCESS: Applied to ${jobData.company}`);
+          addLog(`🚀 APPLYING TO REAL JOB: ${jobData.company}...`);
+          
+          // ACTUALLY APPLY TO THE JOB
+          const applicationResult = await applyToJob(jobData, profile, selectedStyle);
+          
+          if (applicationResult.success) {
+            addLog(`✅ APPLICATION URL OPENED: ${jobData.applyUrl}`);
+            
+            // Store application
+            const logEntry: ApplicationLog = {
+              id: Math.random().toString(36).substr(2, 9),
+              jobId: jobData.id,
+              jobTitle: jobData.title,
+              company: jobData.company,
+              status: ApplicationStatus.COMPLETED,
+              timestamp: new Date().toISOString(),
+              url: jobData.applyUrl,
+              platform: jobData.platform,
+              location: jobData.location,
+              coverLetter: applicationResult.materials.coverLetter,
+              coverLetterStyle: selectedStyle,
+              mutatedResume: applicationResult.materials.resume,
+              mutationReport: applicationResult.materials.mutationReport
+            };
+            onApply(logEntry);
+            addLog(`✅ SUCCESS: Applied to ${jobData.company} - Application window opened!`);
+          } else {
+            throw new Error("Application failed");
+          }
         } else {
           addLog(`⚠️ SKIPPED: Match score (${matchResult.score}%) below user threshold.`);
         }
@@ -319,34 +332,65 @@ const JobHunter: React.FC<JobHunterProps> = ({ profile, activeStrategy, onApply,
     setIsProcessing(true);
     try {
       setAutomationStep(ApplicationStatus.GENERATING_CL);
-      const cl = await generateCoverLetter(currentJob, profile, selectedStyle);
-
+      addLog("📝 Generating tailored cover letter...");
+      
       setAutomationStep(ApplicationStatus.MUTATING_RESUME);
-      const mutationResult = await mutateResume(currentJob, profile);
+      addLog("🔧 Customizing resume for this role...");
       
       setAutomationStep(ApplicationStatus.APPLYING);
-      if (!(await performRiskCheck("Navigation"))) throw new Error("Risk Threshold Exceeded");
-      await humanDelay(3000, 5000);
+      addLog("🚀 APPLYING TO REAL JOB: Opening application page and preparing materials...");
       
-      const logEntry: ApplicationLog = {
-        id: Math.random().toString(36).substr(2, 9),
-        jobId: currentJob.id,
-        jobTitle: currentJob.title,
-        company: currentJob.company,
-        status: ApplicationStatus.COMPLETED,
-        timestamp: new Date().toISOString(),
-        url: currentJob.applyUrl,
-        platform: currentJob.platform,
-        location: currentJob.location,
-        coverLetter: cl,
-        coverLetterStyle: selectedStyle,
-        mutatedResume: mutationResult.mutatedResume,
-        mutationReport: mutationResult.report
-      };
-      onApply(logEntry);
-      setAutomationStep(ApplicationStatus.COMPLETED);
-      setJobInput('');
+      if (!(await performRiskCheck("Navigation"))) throw new Error("Risk Threshold Exceeded");
+      
+      // ACTUALLY APPLY TO THE JOB
+      const applicationResult = await applyToJob(currentJob, profile, selectedStyle);
+      
+      if (applicationResult.success) {
+        addLog(`✅ APPLICATION URL OPENED: ${currentJob.applyUrl}`);
+        addLog("📋 Application materials prepared and ready to use!");
+        
+        // Create and download application package
+        try {
+          const packageBlob = await createApplicationPackage(currentJob, applicationResult.materials);
+          const url = URL.createObjectURL(packageBlob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `Application_${currentJob.company.replace(/\s+/g, '_')}_${Date.now()}.txt`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          addLog("💾 Application package downloaded!");
+        } catch (err) {
+          console.error('Failed to download package:', err);
+        }
+        
+        // Store materials for easy access
+        const logEntry: ApplicationLog = {
+          id: Math.random().toString(36).substr(2, 9),
+          jobId: currentJob.id,
+          jobTitle: currentJob.title,
+          company: currentJob.company,
+          status: ApplicationStatus.COMPLETED,
+          timestamp: new Date().toISOString(),
+          url: currentJob.applyUrl,
+          platform: currentJob.platform,
+          location: currentJob.location,
+          coverLetter: applicationResult.materials.coverLetter,
+          coverLetterStyle: selectedStyle,
+          mutatedResume: applicationResult.materials.resume,
+          mutationReport: applicationResult.materials.mutationReport
+        };
+        onApply(logEntry);
+        
+        setAutomationStep(ApplicationStatus.COMPLETED);
+        addLog("✅ APPLICATION CYCLE COMPLETE! Fill out the form in the opened window using the downloaded materials.");
+        setJobInput('');
+      } else {
+        throw new Error("Application preparation failed");
+      }
     } catch (e) {
+      addLog(`❌ APPLICATION FAILED: ${e instanceof Error ? e.message : 'Unknown error'}`);
       setAutomationStep(ApplicationStatus.FAILED);
     } finally {
       setIsProcessing(false);

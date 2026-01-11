@@ -8,12 +8,15 @@ A professional-grade autonomous agent for job application automation, resume mut
 
 ## Features
 
+- 🔍 **Real Job Search** - Searches actual job listings from real job boards (Indeed, Adzuna, Google Jobs)
+- 🚀 **Actual Applications** - Opens real job application URLs and prepares all materials automatically
 - 🤖 AI-powered job discovery and matching
 - 📝 Automated resume customization for each application
 - 💼 Cover letter generation with multiple styles
 - 📊 Application tracking and analytics
 - 🔐 Secure cloud-based profile management
 - 🎯 Strategic job hunting with AI recommendations
+- 📦 Application package generation (downloadable cover letter + resume)
 
 ## Prerequisites
 
@@ -93,11 +96,17 @@ Make sure to set the environment variables appropriately for each platform.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `VITE_GEMINI_API_KEY` | Yes | Your Gemini API key for AI features |
+| `VITE_GEMINI_API_KEY` | Yes | Your Gemini API key for AI features ([Get one here](https://aistudio.google.com/app/apikey)) |
 | `VITE_SUPABASE_URL` | No | Your Supabase project URL (has default) |
 | `VITE_SUPABASE_ANON_KEY` | No | Your Supabase anonymous key (has default) |
+| `VITE_ADZUNA_APP_ID` | No | Adzuna App ID for enhanced job search ([Get one here](https://developer.adzuna.com/)) |
+| `VITE_ADZUNA_APP_KEY` | No | Adzuna App Key for enhanced job search |
+| `VITE_SERP_API_KEY` | No | SerpAPI key for Google Jobs search ([Get one here](https://serpapi.com/)) |
 
-**Note:** Environment variables must be prefixed with `VITE_` to be accessible in the browser when using Vite.
+**Note:** 
+- Environment variables must be prefixed with `VITE_` to be accessible in the browser when using Vite.
+- The app works without job API keys (uses free RSS feeds), but adding Adzuna or SerpAPI keys provides better job search results.
+- The app now searches **REAL jobs** from actual job boards and opens real application URLs when you apply!
 
 ## Project Structure
 
