@@ -1,7 +1,8 @@
 import express from 'express';
 import cors from 'cors';
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
 import dotenv from 'dotenv';
+import fs from 'fs';
 
 dotenv.config();
 
@@ -26,7 +27,28 @@ let browser = null;
 // Initialize browser instance (reusable)
 async function getBrowser() {
   if (!browser) {
-    browser = await puppeteer.launch({
+    // Try to use system Chrome/Chromium first (much faster)
+    const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || 
+      (() => {
+        // Common Chrome/Chromium paths
+        if (process.platform === 'linux') {
+          const paths = [
+            '/usr/bin/google-chrome',
+            '/usr/bin/google-chrome-stable',
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
+            '/snap/bin/chromium'
+          ];
+          for (const path of paths) {
+            try {
+              if (fs.existsSync(path)) return path;
+            } catch {}
+          }
+        }
+        return null;
+      })();
+
+    const launchOptions = {
       headless: true,
       args: [
         '--no-sandbox',
@@ -35,9 +57,20 @@ async function getBrowser() {
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--single-process', // Faster startup
+        '--disable-software-rasterizer'
       ]
-    });
+    };
+
+    if (executablePath) {
+      launchOptions.executablePath = executablePath;
+      console.log(`Using system browser: ${executablePath}`);
+    } else {
+      console.log('Using bundled Puppeteer browser');
+    }
+
+    browser = await puppeteer.launch(launchOptions);
   }
   return browser;
 }

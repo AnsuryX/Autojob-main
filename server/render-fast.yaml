@@ -1,0 +1,14 @@
+# Fast Render configuration using system Chromium
+services:
+  - type: web
+    name: autojob-backend-fast
+    env: docker
+    dockerfilePath: ./Dockerfile
+    rootDir: server
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+    healthCheckPath: /health
